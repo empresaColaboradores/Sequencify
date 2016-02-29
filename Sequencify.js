@@ -1,20 +1,9 @@
 var fs = require('fs');
+var config = require('./config/config');
+var filter = require('./config/filter');
+var chokidar = require('chokidar');
 
-function getFiles (dir, files_){
-    files_ = files_ || [];
-    var files = fs.readdirSync(dir);
-    for (var i in files){
-        var name = dir + '/' + files[i];
-        if (fs.statSync(name).isDirectory()){
-            getFiles(name, files_);
-        } else {
-            files_.push(name);
-        }
-    }
-    return files_;
-}
-
-function GenerateSequences(FILE_NAME){
+function GenerateSequences(FILE_NAME) {
   fs.readFile(FILE_NAME, 'utf8', function(err, xml){
       if(err) throw err;
 
@@ -22,40 +11,45 @@ function GenerateSequences(FILE_NAME){
         var generatorPos = xml.indexOf('generator');
 
         if(generatorPos){
-          var Before = xml.slice(0, generatorPos-1);
+          var before = xml.slice(0, generatorPos-1);
           
-          var idTagStart = Before.indexOf('<column name="');
-          var idTagEnd = idTagStart;
-          while(Before.substring(idTagEnd) != " ") idTagEnd++;
+          var columnTagStart = before.indexOf('<column name="');
+          var columnTagEnd = columnTagStart;
+          while(before.substring(columnTagEnd) != " ") columnTagEnd++;
 
-          var Column = Before.slice(idTagStart, idTagEnd);
-          var ColumnName = Column.split(" ")[1].split("name=")[1].split('"')[1];
+          var column = before.slice(columnTagStart, columnTagEnd);
+          var name = column.split(" ")[1].split("name=")[1].split('"')[1];
 
-          var SequenceName = ColumnName.split("COD")[1] + '_SEQ';
-          var Generator = '<generator class="com.hseq.data.OracleSequenceGenerator">\n\t\t\t\t<param name="sequence"> ' + SequenceName + ' </param>\n\t\t\t</generator>';
+          var SequenceName = name.split("COD")[1] + '_SEQ';
+          var generator = '<generator class="com.hseq.data.OracleSequenceGenerator">\n\t\t\t\t<param name="sequence"> ' + SequenceName + ' </param>\n\t\t\t</generator>';
 
-          var FILE_CONTENT = Before + Generator + xml.slice(generatorPos + 57 , xml.length);
+          var FILE_CONTENT = before + generator + xml.slice(generatorPos + 57 , xml.length);
 
-          fs.writeFile('NEW XMLs/'+ FILE_NAME.split("OLD XMLs/")[1], FILE_CONTENT, function (err) {
+          var Entity = FILE_NAME.split("/")[1];
+
+          fs.writeFile( config.path + '/' + Entity, FILE_CONTENT, function (err) {
             if (err) return console.log(err);
-            console.log(FILE_NAME, 'FIXED');
+            console.log(Entity, 'Fixed');
           });
-        }  
+        }
       }
   });
 }
 
-function Sequencify(FOLDER_NAME){
-  var XMLs = getFiles(FOLDER_NAME);
-
-  for (var i = 0; i <= XMLs.length; i++) {
-    var file = XMLs[i];
-    
-    if(file){
-      if(file.indexOf('.DS_Store') === -1 && file.indexOf('.ql') === -1 && file.indexOf('Empresa.hbm.xml') === -1 && file.indexOf('.java') === -1)
-        GenerateSequences(file);
-    }
-  } 
+function Sequencify() {
+  var xmls = filter();
+  
+  for (var i = 0; i < xmls.length; i++) 
+    GenerateSequences(xmls[i]);
 }
 
-Sequencify('OLD XMLs');
+if(process.argv[2] == '--watch') {
+  var watcher = chokidar.watch(config.input, { persistent: true });
+
+  watcher.on('change', function(path) {
+    Sequencify(config.input);
+  });
+} else {
+  var watcher = chokidar.watch(config.input, { persistent: false });
+  Sequencify(config.input);
+}
